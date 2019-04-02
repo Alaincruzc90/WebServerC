@@ -142,7 +142,7 @@ struct file_status get_status(char* path, char* host, char* content_type) {
     return stats;
 }
 
-// Writes log
+// Writes to the log.
 void write_log(char* log_info, int type) {
     char cwd[1024];
     //We get the current working directory.
@@ -185,13 +185,14 @@ void write_log(char* log_info, int type) {
         }
     }
     closedir(srcdir);
-    //Release lock,
+    
+    // Release lock.
     sem_post(sem_file);
 }
 
-//Method to print the file status.
-//Only use for testing.
+// Method to print the file status.
+// Only used for testing.
 void print_file_status(struct file_status stats){
-    printf("%d %s | Size: %d\nCode: %s\n",stats.code,stats.code_name,stats.size,stats.file_bytes);
+    printf("%d %s | Size: %d\nCode: %s\n", stats.code, stats.code_name, stats.size, stats.file_bytes);
 }
 

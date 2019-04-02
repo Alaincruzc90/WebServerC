@@ -92,6 +92,7 @@ int main(int argc , char *argv[]) {
     pid_t child_pid = fork();
     if(child_pid == 0){
         writelog_info(1);
+        return 0;
     } else if(child_pid<0) {
         printf("Fork failed.");
         exit(-1);
@@ -101,7 +102,8 @@ int main(int argc , char *argv[]) {
     puts("Waiting for incoming connections...");
     c = sizeof(struct sockaddr_in);
     
-    while( (new_socket = accept(socket_desc, (struct sockaddr *)&client, (socklen_t*)&c)) &&  exit_system == 0){
+    while( (new_socket = accept(socket_desc, (struct sockaddr *)&client, (socklen_t*)&c))
+          &&  exit_system == 0) {
         
         puts("Connection accepted");
         char ip[INET_ADDRSTRLEN];
@@ -139,14 +141,27 @@ int main(int argc , char *argv[]) {
         }
     }
     
-    if (new_socket < 0) {
+    if (new_socket < 0 &&  exit_system == 0) {
         perror("accept failed");
         return 1;
+    }
+    
+    // Shutdown the log connection.
+    message.type = 2;
+    int result = msgsnd(queueID, &message, sizeof(message), 0);
+    if(result<0){
+        perror("Error sending message.");
     }
     
     // Terminate our connection.
     shutdown(socket_desc, 2);
     close(socket_desc);
+    
+    // Wait for child process to finish.
+    if (wait(&child_pid) == -1) {
+        perror("wait failed");
+        exit(1);
+    }
     
     destroy_ip_management();
     sem_unlink(semname);
@@ -162,14 +177,15 @@ void *listen_connection(void *sock) {
     char client_message[2000];
     char const error_request[120] = "REQUEST ERROR:\nThe request doesn't complies with the requirements. Please, try again. We only accept GET requests.\n";
     char const exiting_system[120] = "Server is shutting down.\n\0";
-    read_size = (int)recv(new_sock , client_message , 2000 , 0);
+    read_size = (int)recv(new_sock, client_message, 2000 , 0);
     
     // Check if the request complies with our requirements.
     int response = check_response(client_message);
     
-    //Should the request not fulfill our requirements, we close the connection.
+    // Should the request not fulfill our requirements, we close the connection.
     if (response == 0) {
         write(new_sock, error_request, strlen(error_request));
+        shutdown(new_sock, 2);
         close(new_sock);
         sem_wait(sem);
         thread_count--;
@@ -187,10 +203,19 @@ void *listen_connection(void *sock) {
         char* host = get_host(client_message);
         char* type = get_type(request);
         
+        // Check if we received an exit message.
         if( strcmp(request, "/exit") == 0) {
+            
+            // We need to shutdown the listening socket,
+            // as well as the current one.
             write(new_sock, exiting_system, strlen(exiting_system));
             exit_system = 1;
+            shutdown(new_sock, 2);
             close(new_sock);
+            shutdown(socket_desc, 2);
+            close(socket_desc);
+            
+            // Reduce the thread count.
             sem_wait(sem);
             thread_count--;
             sem_post(sem);
@@ -424,11 +449,15 @@ void sendlog_info(char *request_log, char *host_log, int methodType) {
 void writelog_info(int methodType) {
     ssize_t result;
     while((result = msgrcv(queueID, &message, sizeof(message), 1, 0))){
-        if(result<0) {
-            perror("Error recieving message.");
+        if(result < 0) {
+            write_log("Error recieving message.", 2);
         } else {
+            if(message.type == 2) {
+                write_log("Shutting down logger.", 2);
+                return;
+            }
             write_log(message.info_log, methodType);
-            printf("%s\n",message.info_log);
+            printf("%s\n", message.info_log);
         }
     }
 }

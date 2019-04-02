@@ -8,7 +8,7 @@
 
 #include "response_manager.h"
 
-//We check that the client's request complies with our server's requirements.
+// We check that the client's request complies with our server's requirements.
 int check_response(char* message){
     
     regex_t regex;
